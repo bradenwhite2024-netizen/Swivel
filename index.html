@@ -513,7 +513,7 @@ body{
     <div class="nav-tabs">
       <button class="nav-tab active" onclick="switchTab('dashboard')">Dashboard</button>
       <button class="nav-tab"        onclick="switchTab('film')">Film</button>
-      <button class="nav-tab"        onclick="switchTab('reports')">Reports</button>
+      <button class="nav-tab"        onclick="switchTab('reports')">Player Cards</button>
       <button class="nav-tab"        onclick="switchTab('season')">Season</button>
     </div>
     <button id="add-game-btn" onclick="triggerAddGame()">＋ Add Game</button>
@@ -631,32 +631,13 @@ body{
     </div>
   </div>
 
-  <!-- REPORTS -->
+  <!-- PLAYER CARDS -->
   <div id="tab-reports" class="tab-pane">
-    <div class="reports-grid">
-      <div class="rpt-card">
-        <div class="rpt-icon">📄</div>
-        <div class="rpt-name">Box Score PDF</div>
-        <div class="rpt-desc">Full statistical box score with team totals, shooting splits, and per-player breakdown. Opens print dialog.</div>
-        <button class="rpt-btn" onclick="exportBoxScorePDF()">Generate PDF</button>
-      </div>
-      <div class="rpt-card">
-        <div class="rpt-icon">📊</div>
-        <div class="rpt-name">CSV Export</div>
-        <div class="rpt-desc">Download the full event log with video timestamps, player, stat type for re-import or analysis.</div>
-        <button class="rpt-btn" onclick="exportCSV()">Download CSV</button>
-      </div>
-      <div class="rpt-card">
-        <div class="rpt-icon">🃏</div>
-        <div class="rpt-name">Player Cards</div>
-        <div class="rpt-desc">Generate a stat summary card for each player showing their complete stat line and efficiency metrics.</div>
-        <button class="rpt-btn" onclick="genPlayerCards()">Generate Cards</button>
-      </div>
-      <div class="rpt-card">
-        <div class="rpt-icon">📈</div>
-        <div class="rpt-name">Add to Season</div>
-        <div class="rpt-desc">Save this game to your Season Dashboard to track trends and totals across all uploaded games.</div>
-        <button class="rpt-btn" onclick="addToSeason()">Save to Season</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
+      <div class="label" style="color:var(--c-orange);">Player Cards</div>
+      <div style="display:flex;gap:8px;">
+        <button class="rpt-btn" onclick="exportBoxScorePDF()" style="font-size:10px;padding:7px 14px;">📄 Box Score PDF</button>
+        <button class="rpt-btn" onclick="exportCSV()" style="font-size:10px;padding:7px 14px;">📊 Export CSV</button>
       </div>
     </div>
     <div id="player-cards-out"></div>
@@ -666,9 +647,13 @@ body{
   <div id="tab-season" class="tab-pane">
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap;">
       <div class="label" style="color:var(--c-orange);">Season Dashboard</div>
-      <span style="font-size:11px;color:var(--c-muted);">Tracks totals &amp; trends across all saved games</span>
+      <span style="font-size:11px;color:var(--c-muted);">Every CSV uploaded is automatically recorded as a game</span>
     </div>
     <div id="season-content"></div>
+    <!-- POST-GAME REPORT OVERLAY -->
+    <div id="pgr-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:800;overflow-y:auto;padding:24px;">
+      <div id="pgr-inner" style="max-width:860px;margin:0 auto;background:var(--c-panel);border:1px solid var(--c-border2);border-radius:14px;padding:32px;"></div>
+    </div>
   </div>
 </div>
 
@@ -962,6 +947,40 @@ function launchApp() {
   document.getElementById('nav-info').textContent =
     gameInfo.team + ' vs ' + gameInfo.opp + (gameInfo.date?' · '+gameInfo.date:'') + gamesNote;
 
+  // Auto-save each newly loaded game to season
+  loadedGames.forEach((g, idx) => {
+    const alreadySaved = seasonGames.find(sg=>sg.sourceFile===g.filename);
+    if (!alreadySaved) {
+      const gStatEvts = statEvents.filter(e=>e.gameIndex===idx);
+      const gPlayers = [...new Set(gStatEvts.map(e=>e.player))].filter(Boolean);
+      const entry = {
+        id: Date.now() + idx,
+        sourceFile: g.filename,
+        team: gameInfo.team,
+        opp: gameInfo.opp,
+        date: gameInfo.date,
+        loc: gameInfo.loc,
+        teamPts: gPlayers.reduce((s,p)=>{
+          const evts = gStatEvts.filter(e=>e.player===p);
+          return s + evts.filter(e=>e.stat==='twopm').length*2 + evts.filter(e=>e.stat==='tpm').length*3 + evts.filter(e=>e.stat==='ftm').length;
+        },0),
+        oppPts: events.filter(e=>e.type==='opp'&&e.gameIndex===idx).reduce((s,e)=>{const m=(e.eventLabel||'').match(/\+(\d+)/);return s+(m?parseInt(m[1]):0);},0),
+        playerStats: Object.fromEntries(gPlayers.map(p=>{
+          const evts = gStatEvts.filter(e=>e.player===p);
+          const cnt = k => evts.filter(e=>e.stat===k).length;
+          const ptsV = cnt('twopm')*2+cnt('tpm')*3+cnt('ftm');
+          const fga = cnt('twopm')+cnt('twopa')+cnt('tpm')+cnt('tpa');
+          const fta = cnt('ftm')+cnt('fta');
+          const ts = (2*(fga+0.44*fta))>0 ? ptsV/(2*(fga+0.44*fta)) : null;
+          const pmData = statsMap[p];
+          return [p,{pts:ptsV,ast:cnt('ast'),to:cnt('to'),stl:cnt('stl'),blk:cnt('blk'),reb:cnt('oreb')+cnt('dreb'),ts,pm:pmData?((pmData['Team PTS On']||0)-(pmData['Opp PTS On']||0)):0}];
+        })),
+      };
+      seasonGames.push(entry);
+    }
+  });
+  localStorage.setItem('swivel_season', JSON.stringify(seasonGames));
+  renderSeason();
   toast('SWIVEL LOADED · '+statEvents.length+' EVENTS · '+players.length+' PLAYERS · '+loadedGames.length+' GAME'+(loadedGames.length>1?'S':''));
 }
 
@@ -1136,6 +1155,7 @@ function renderDashboard() {
   document.getElementById('gh-plyrs').textContent = players.length;
 
   renderBoxScore();
+  genPlayerCards();
   // Usage Rate = (FGA + 0.44*FTA + TO) / Team Poss — count actual offensive possession events
   const teamPoss = Math.max(events.filter(e=>e.type==='poss' && (e.eventLabel||'').toLowerCase().includes('offensive')).length, 1);
   renderBarChart('chart-pts', players.map(p=>{
@@ -1561,23 +1581,44 @@ function exportCSV() {
 
 function genPlayerCards() {
   const out = document.getElementById('player-cards-out');
-  let html = '<div style="font-size:9px;letter-spacing:4px;color:var(--c-orange);text-transform:uppercase;font-weight:700;margin-bottom:14px;">Player Cards</div>';
-  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;">';
+  if (!players.length) { out.innerHTML='<div style="color:var(--c-muted);text-align:center;padding:40px;font-size:13px;letter-spacing:2px;">LOAD A GAME TO SEE PLAYER CARDS</div>'; return; }
+  const gp_total = loadedGames.length || 1;
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;">';
   players.forEach(p=>{
     const pm_v = pm(p);
     const ts_v = tsPct(p);
-    html += `<div style="background:var(--c-panel);border:1px solid var(--c-border);border-radius:10px;padding:18px;">
-      <div style="font-size:24px;font-weight:900;color:var(--c-orange2);">#${p}</div>
-      <div style="font-size:10px;letter-spacing:2px;color:var(--c-muted);margin-bottom:12px;">${gameInfo.team||'TEAM'}</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
-        ${[['PTS',pts(p)],['AST',getStat(p,'AST')],['REB',(getStat(p,'OREB')||0)+(getStat(p,'DREB')||0)],
-           ['STL',getStat(p,'STL')],['TS%',ts_v!==null?(ts_v*100).toFixed(1)+'%':'—'],['+/−',(pm_v>0?'+':'')+pm_v]]
-          .map(([l,v])=>`<div><div style="color:var(--c-orange);font-size:8px;letter-spacing:2px;">${l}</div><div style="font-size:20px;font-weight:900;color:var(--c-cream);">${v}</div></div>`).join('')}
-      </div></div>`;
+    const gp = Math.max(getStat(p,'GP')||1,1);
+    const ppg = (pts(p)/gp).toFixed(1);
+    const apg = ((getStat(p,'AST')||0)/gp).toFixed(1);
+    const rpg = (((getStat(p,'OREB')||0)+(getStat(p,'DREB')||0))/gp).toFixed(1);
+    const spg = ((getStat(p,'STL')||0)/gp).toFixed(1);
+    const bpg = ((getStat(p,'BLK')||0)/gp).toFixed(1);
+    const ts_disp = ts_v!==null?(ts_v*100).toFixed(1)+'%':'—';
+    const pm_disp = (pm_v>0?'+':'')+pm_v;
+    const pm_col = pm_v>0?'var(--c-green)':pm_v<0?'var(--c-red)':'var(--c-muted)';
+    html += `<div style="background:linear-gradient(160deg,rgba(22,22,31,0.98),rgba(14,14,20,0.99));border:1px solid var(--c-border);border-radius:12px;padding:20px;position:relative;overflow:hidden;">
+      <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--c-orange),var(--c-maroon));"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div>
+          <div style="font-size:32px;font-weight:900;color:var(--c-orange2);line-height:1;">#${p}</div>
+          <div style="font-size:9px;letter-spacing:3px;color:var(--c-muted);text-transform:uppercase;margin-top:2px;">${gameInfo.team||'TEAM'} · ${gp} GP</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:9px;letter-spacing:2px;color:var(--c-muted);">+/−</div>
+          <div style="font-size:26px;font-weight:900;color:${pm_col};">${pm_disp}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;">
+        ${[['PPG',ppg],['APG',apg],['RPG',rpg],['SPG',spg],['BPG',bpg],['TS%',ts_disp]]
+          .map(([l,v])=>`<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 8px;text-align:center;">
+            <div style="color:var(--c-orange);font-size:8px;letter-spacing:2px;font-weight:700;text-transform:uppercase;margin-bottom:4px;">${l}</div>
+            <div style="font-size:20px;font-weight:900;color:var(--c-cream);line-height:1;">${v}</div>
+          </div>`).join('')}
+      </div>
+    </div>`;
   });
   html += '</div>';
   out.innerHTML = html;
-  toast('PLAYER CARDS GENERATED');
 }
 
 function addToSeason() {
@@ -1604,51 +1645,282 @@ function addToSeason() {
 // ═══════════════════════════════════════════════════════════
 //  SEASON
 // ═══════════════════════════════════════════════════════════
+let activeTrendFilter = 'team';
+let activeTrendPlayer = '';
+
 function renderSeason() {
   const el = document.getElementById('season-content');
   if (!seasonGames.length) {
-    el.innerHTML=`<div class="season-empty">No games saved yet.<br><span style="font-size:11px;opacity:0.7;">Use Reports → Add to Season to track this game.</span></div>`;
+    el.innerHTML=`<div class="season-empty">No games saved yet.<br><span style="font-size:11px;opacity:0.7;">Each CSV you upload is automatically saved as a game here.</span></div>`;
     return;
   }
-  let html = `<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+  const wins = seasonGames.filter(g=>g.teamPts>(g.oppPts||0)).length;
+  const losses = seasonGames.length - wins;
+  let html = `<div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;">
     <div class="score-pill"><span class="score-pill-lbl">Games</span><span class="score-pill-val">${seasonGames.length}</span></div>
+    <div class="score-pill"><span class="score-pill-lbl">Record</span><span class="score-pill-val">${wins}–${losses}</span></div>
     <div class="score-pill"><span class="score-pill-lbl">Avg Pts For</span><span class="score-pill-val">${(seasonGames.reduce((s,g)=>s+g.teamPts,0)/seasonGames.length).toFixed(1)}</span></div>
     <div class="score-pill"><span class="score-pill-lbl">Avg Pts Ag</span><span class="score-pill-val">${(seasonGames.reduce((s,g)=>s+(g.oppPts||0),0)/seasonGames.length).toFixed(1)}</span></div>
-    <div class="score-pill"><span class="score-pill-lbl">Record</span><span class="score-pill-val">${seasonGames.filter(g=>g.teamPts>(g.oppPts||0)).length}–${seasonGames.filter(g=>g.teamPts<=(g.oppPts||0)).length}</span></div>
   </div>`;
 
+  // Game list with Post-Game Report links
+  html += '<div class="label" style="color:var(--c-orange);margin-bottom:10px;">Game Log</div>';
   html += '<div class="season-games">';
   seasonGames.slice().reverse().forEach(g=>{
     const win = g.teamPts > (g.oppPts||0);
     html += `<div class="season-game-row">
-      <div>
+      <div style="flex:1;">
         <div class="sg-title">${g.team} vs ${g.opp}</div>
-        <div class="sg-meta">${g.date||''}${g.loc?' · '+g.loc:''}</div>
+        <div class="sg-meta">${g.date||'No date'}${g.loc?' · '+g.loc:''}</div>
       </div>
       <div class="sg-pts" style="color:${win?'var(--c-green)':'var(--c-red)'}">${g.teamPts}–${g.oppPts||'?'}</div>
-      <div style="font-size:11px;color:var(--c-muted);">${win?'W':'L'}</div>
-      <button class="sg-del" onclick="deleteSeason(${g.id})">✕ Remove</button>
+      <div style="font-size:11px;color:var(--c-muted);min-width:16px;">${win?'W':'L'}</div>
+      <button onclick="openPostGameReport(${g.id})" style="background:rgba(232,130,10,0.12);border:1px solid rgba(232,130,10,0.35);border-radius:6px;color:var(--c-orange2);font-family:'Georgia',serif;font-size:10px;font-weight:700;padding:6px 12px;cursor:pointer;letter-spacing:1px;white-space:nowrap;">📋 Report</button>
+      <button class="sg-del" onclick="deleteSeason(${g.id})">✕</button>
     </div>`;
   });
   html += '</div>';
 
-  // Season trends chart (pts by game)
-  if (seasonGames.length >= 2) {
-    html += '<div style="margin-top:20px;"><div class="label" style="color:var(--c-orange);margin-bottom:12px;">Points Trend</div>';
-    html += '<div style="display:flex;align-items:flex-end;gap:8px;height:80px;">';
-    const mx = Math.max(...seasonGames.map(g=>g.teamPts),1);
-    seasonGames.forEach(g=>{
-      const h = Math.round((g.teamPts/mx)*72)+4;
-      html += `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;">
-        <div style="font-size:9px;color:var(--c-orange2);font-weight:900;">${g.teamPts}</div>
-        <div style="width:100%;height:${h}px;background:linear-gradient(180deg,var(--c-orange),var(--c-maroon));border-radius:3px 3px 0 0;"></div>
-        <div style="font-size:8px;color:var(--c-muted);letter-spacing:1px;white-space:nowrap;overflow:hidden;max-width:40px;">${g.opp}</div>
-      </div>`;
-    });
-    html += '</div></div>';
-  }
+  // Trends section
+  const allSeasonPlayers = [...new Set(seasonGames.flatMap(g=>Object.keys(g.playerStats||{})))];
+  html += `<div style="margin-top:24px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+      <div class="label" style="color:var(--c-orange);">Trends</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button onclick="setTrendFilter('team','')" style="background:${activeTrendFilter==='team'?'var(--c-maroon)':'rgba(255,255,255,0.05)'};border:1px solid ${activeTrendFilter==='team'?'var(--c-orange)':'var(--c-border)'};border-radius:5px;color:${activeTrendFilter==='team'?'var(--c-orange2)':'var(--c-muted)'};font-family:'Georgia',serif;font-size:10px;padding:5px 12px;cursor:pointer;letter-spacing:1px;font-weight:700;">TEAM</button>
+        ${allSeasonPlayers.map(p=>`<button onclick="setTrendFilter('player','${p}')" style="background:${activeTrendFilter==='player'&&activeTrendPlayer===p?'var(--c-maroon)':'rgba(255,255,255,0.05)'};border:1px solid ${activeTrendFilter==='player'&&activeTrendPlayer===p?'var(--c-orange)':'var(--c-border)'};border-radius:5px;color:${activeTrendFilter==='player'&&activeTrendPlayer===p?'var(--c-orange2)':'var(--c-muted)'};font-family:'Georgia',serif;font-size:10px;padding:5px 12px;cursor:pointer;letter-spacing:1px;font-weight:700;">#${p}</button>`).join('')}
+      </div>
+    </div>
+    <div id="trend-charts-inner">${buildTrendCharts()}</div>
+  </div>`;
 
   el.innerHTML = html;
+}
+
+function setTrendFilter(type, player) {
+  activeTrendFilter = type;
+  activeTrendPlayer = player;
+  const inner = document.getElementById('trend-charts-inner');
+  if (inner) inner.innerHTML = buildTrendCharts();
+  renderSeason();
+}
+
+function buildTrendCharts() {
+  if (seasonGames.length < 2) return '<div style="color:var(--c-muted);font-size:11px;letter-spacing:1px;padding:10px 0;">Need at least 2 games for trends.</div>';
+  const games = [...seasonGames].sort((a,b)=>a.id-b.id);
+  const labels = games.map((g,i)=>'G'+(i+1)+' '+g.opp);
+
+  if (activeTrendFilter === 'team') {
+    const metrics = [
+      {label:'Points Scored', vals:games.map(g=>g.teamPts), color:'var(--c-orange)'},
+      {label:'Points Allowed', vals:games.map(g=>g.oppPts||0), color:'var(--c-red)'},
+      {label:'Point Differential', vals:games.map(g=>g.teamPts-(g.oppPts||0)), color:'var(--c-green)'},
+    ];
+    return buildSparklineGrid(labels, metrics);
+  } else {
+    const p = activeTrendPlayer;
+    const metrics = [
+      {label:'Points',   vals:games.map(g=>g.playerStats?.[p]?.pts||0),   color:'var(--c-orange)'},
+      {label:'Assists',  vals:games.map(g=>g.playerStats?.[p]?.ast||0),  color:'var(--c-blue)'},
+      {label:'Rebounds', vals:games.map(g=>g.playerStats?.[p]?.reb||0),  color:'var(--c-green)'},
+      {label:'+/−',      vals:games.map(g=>g.playerStats?.[p]?.pm||0),   color:'var(--c-gold)'},
+      {label:'TS%',      vals:games.map(g=>{ const v=g.playerStats?.[p]?.ts; return v!=null?parseFloat((v*100).toFixed(1)):0; }), color:'var(--c-maroon2)'},
+    ];
+    return buildSparklineGrid(labels, metrics);
+  }
+}
+
+function buildSparklineGrid(labels, metrics) {
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;">';
+  metrics.forEach(m=>{
+    const vals = m.vals;
+    const mx = Math.max(...vals.map(Math.abs), 1);
+    const mn = Math.min(...vals);
+    html += `<div style="background:var(--c-panel);border:1px solid var(--c-border);border-radius:10px;padding:16px;">
+      <div style="font-size:9px;letter-spacing:3px;color:var(--c-orange);text-transform:uppercase;font-weight:700;margin-bottom:12px;">${m.label}</div>
+      <div style="display:flex;align-items:flex-end;gap:4px;height:60px;margin-bottom:8px;">`;
+    vals.forEach((v,i)=>{
+      const abs = Math.abs(v);
+      const h = Math.max(4, Math.round((abs/mx)*52));
+      const col = v < 0 ? 'var(--c-red)' : m.color;
+      html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
+        <div style="font-size:8px;color:var(--c-muted);font-weight:700;">${v>0&&m.label==='+/−'?'+':''}${v}</div>
+        <div style="width:100%;height:${h}px;background:${col};border-radius:2px 2px 0 0;opacity:0.85;"></div>
+      </div>`;
+    });
+    html += `</div><div style="display:flex;gap:4px;">${labels.map(l=>`<div style="flex:1;font-size:7px;color:var(--c-muted);text-align:center;overflow:hidden;white-space:nowrap;">${l}</div>`).join('')}</div></div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+function openPostGameReport(id) {
+  const g = seasonGames.find(x=>x.id===id);
+  if (!g) return;
+  const overlay = document.getElementById('pgr-overlay');
+  const inner = document.getElementById('pgr-inner');
+  inner.innerHTML = buildPostGameReport(g);
+  overlay.style.display = 'block';
+  overlay.scrollTop = 0;
+}
+
+function closePostGameReport() {
+  document.getElementById('pgr-overlay').style.display = 'none';
+}
+
+function buildPostGameReport(g) {
+  const win = g.teamPts > (g.oppPts||0);
+  const diff = g.teamPts - (g.oppPts||0);
+  const pStats = g.playerStats || {};
+  const pList = Object.keys(pStats).sort((a,b)=>(pStats[b].pts||0)-(pStats[a].pts||0));
+
+  // Player grades
+  function gradePlayer(p) {
+    const s = pStats[p];
+    if (!s) return 'C';
+    let score = 0;
+    score += (s.pts||0) * 1.0;
+    score += (s.ast||0) * 1.5;
+    score += (s.reb||0) * 1.2;
+    score += (s.stl||0) * 2.0;
+    score += (s.blk||0) * 2.0;
+    score += (s.pm||0) * 1.5;
+    const ts = s.ts;
+    if (ts != null) score += (ts - 0.5) * 20;
+    if (score >= 30) return 'A+';
+    if (score >= 24) return 'A';
+    if (score >= 18) return 'B+';
+    if (score >= 13) return 'B';
+    if (score >= 8)  return 'C+';
+    if (score >= 4)  return 'C';
+    return 'D';
+  }
+
+  function gradeColor(gr) {
+    if (gr.startsWith('A')) return 'var(--c-green)';
+    if (gr.startsWith('B')) return 'var(--c-blue)';
+    if (gr.startsWith('C')) return 'var(--c-orange)';
+    return 'var(--c-red)';
+  }
+
+  // Key moments
+  const topScorer = pList[0];
+  const topPM = pList.sort((a,b)=>(pStats[b].pm||0)-(pStats[a].pm||0))[0];
+  const topRebounder = Object.keys(pStats).sort((a,b)=>(pStats[b].reb||0)-(pStats[a].reb||0))[0];
+  const topAssister = Object.keys(pStats).sort((a,b)=>(pStats[b].ast||0)-(pStats[a].ast||0))[0];
+
+  // What went right / wrong
+  const wrongs = [];
+  const rights = [];
+  Object.keys(pStats).forEach(p=>{
+    const s = pStats[p];
+    if ((s.pm||0) < -4) wrongs.push(`#${p} was a ${s.pm} on the floor`);
+    if ((s.to||0) >= 4) wrongs.push(`#${p} had ${s.to} turnovers`);
+    if ((s.pm||0) > 4) rights.push(`#${p} was a +${s.pm} on the floor`);
+    if ((s.ast||0) >= 4) rights.push(`#${p} dished ${s.ast} assists`);
+    if ((s.stl||0) >= 2) rights.push(`#${p} had ${s.stl} steals`);
+  });
+  if (win) rights.unshift(`Won by ${diff} points`);
+  else wrongs.unshift(`Lost by ${Math.abs(diff)} points`);
+  if (g.teamPts > (g.oppPts||0) * 1.15) rights.push('Dominant offensive performance — scored 15%+ more than opponent');
+  if ((g.oppPts||0) > g.teamPts * 1.15) wrongs.push('Defensive breakdown — allowed 15%+ more than team scored');
+
+  let html = `
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
+    <div>
+      <div style="font-size:11px;letter-spacing:4px;color:var(--c-orange);text-transform:uppercase;font-weight:700;margin-bottom:4px;">Post-Game Report</div>
+      <div style="font-size:22px;font-weight:900;color:var(--c-cream);">${g.team} vs ${g.opp}</div>
+      <div style="font-size:11px;color:var(--c-muted);letter-spacing:1px;">${g.date||''}${g.loc?' · '+g.loc:''}</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button onclick="window.print()" style="background:rgba(232,130,10,0.12);border:1px solid rgba(232,130,10,0.35);border-radius:7px;color:var(--c-orange2);font-family:'Georgia',serif;font-size:10px;font-weight:700;padding:8px 14px;cursor:pointer;letter-spacing:1px;">🖨 Print Report</button>
+      <button onclick="closePostGameReport()" style="background:rgba(255,255,255,0.06);border:1px solid var(--c-border);border-radius:7px;color:var(--c-muted);font-family:'Georgia',serif;font-size:10px;padding:8px 14px;cursor:pointer;">✕ Close</button>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px;">
+    <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(232,130,10,0.18);border-radius:10px;padding:14px;text-align:center;">
+      <div style="font-size:8px;letter-spacing:3px;color:var(--c-orange);text-transform:uppercase;margin-bottom:4px;">Result</div>
+      <div style="font-size:22px;font-weight:900;color:${win?'var(--c-green)':'var(--c-red)'};">${win?'WIN':'LOSS'}</div>
+    </div>
+    <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(232,130,10,0.18);border-radius:10px;padding:14px;text-align:center;">
+      <div style="font-size:8px;letter-spacing:3px;color:var(--c-orange);text-transform:uppercase;margin-bottom:4px;">Score</div>
+      <div style="font-size:22px;font-weight:900;color:var(--c-cream);">${g.teamPts}–${g.oppPts||'?'}</div>
+    </div>
+    <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(232,130,10,0.18);border-radius:10px;padding:14px;text-align:center;">
+      <div style="font-size:8px;letter-spacing:3px;color:var(--c-orange);text-transform:uppercase;margin-bottom:4px;">Top Scorer</div>
+      <div style="font-size:22px;font-weight:900;color:var(--c-cream);">#${topScorer||'—'}</div>
+      <div style="font-size:10px;color:var(--c-muted);">${topScorer?pStats[topScorer].pts+' pts':''}</div>
+    </div>
+    <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(232,130,10,0.18);border-radius:10px;padding:14px;text-align:center;">
+      <div style="font-size:8px;letter-spacing:3px;color:var(--c-orange);text-transform:uppercase;margin-bottom:4px;">Best +/−</div>
+      <div style="font-size:22px;font-weight:900;color:var(--c-green);">#${topPM||'—'}</div>
+      <div style="font-size:10px;color:var(--c-muted);">${topPM?(pStats[topPM].pm>0?'+':'')+pStats[topPM].pm:''}</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;">
+    <div style="background:rgba(22,163,74,0.06);border:1px solid rgba(22,163,74,0.2);border-radius:10px;padding:16px;">
+      <div style="font-size:9px;letter-spacing:3px;color:var(--c-green);text-transform:uppercase;font-weight:700;margin-bottom:12px;">✓ What Went Right</div>
+      ${rights.length ? rights.map(r=>`<div style="font-size:12px;color:var(--c-text);margin-bottom:7px;padding-left:10px;border-left:2px solid var(--c-green);">• ${r}</div>`).join('') : '<div style="font-size:11px;color:var(--c-muted);">No standout positives recorded.</div>'}
+    </div>
+    <div style="background:rgba(220,38,38,0.06);border:1px solid rgba(220,38,38,0.2);border-radius:10px;padding:16px;">
+      <div style="font-size:9px;letter-spacing:3px;color:var(--c-red);text-transform:uppercase;font-weight:700;margin-bottom:12px;">✗ What Went Wrong</div>
+      ${wrongs.length ? wrongs.map(r=>`<div style="font-size:12px;color:var(--c-text);margin-bottom:7px;padding-left:10px;border-left:2px solid var(--c-red);">• ${r}</div>`).join('') : '<div style="font-size:11px;color:var(--c-muted);">No major issues detected.</div>'}
+    </div>
+  </div>
+
+  <div style="margin-bottom:24px;">
+    <div style="font-size:9px;letter-spacing:3px;color:var(--c-orange);text-transform:uppercase;font-weight:700;margin-bottom:14px;">⭐ Key Moments</div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${topScorer?`<div style="background:rgba(255,255,255,0.03);border:1px solid var(--c-border);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--c-text);">🏀 <strong>#${topScorer}</strong> led the team in scoring with <strong>${pStats[topScorer].pts} points</strong></div>`:''}
+      ${topRebounder&&pStats[topRebounder]?.reb>=5?`<div style="background:rgba(255,255,255,0.03);border:1px solid var(--c-border);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--c-text);">🏀 <strong>#${topRebounder}</strong> dominated the glass with <strong>${pStats[topRebounder].reb} rebounds</strong></div>`:''}
+      ${topAssister&&pStats[topAssister]?.ast>=4?`<div style="background:rgba(255,255,255,0.03);border:1px solid var(--c-border);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--c-text);">🏀 <strong>#${topAssister}</strong> ran the offense with <strong>${pStats[topAssister].ast} assists</strong></div>`:''}
+      ${diff>10?`<div style="background:rgba(255,255,255,0.03);border:1px solid var(--c-border);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--c-text);">🏀 <strong>Dominant performance</strong> — won by double digits (${diff} point margin)</div>`:''}
+      ${Math.abs(diff)<=3?`<div style="background:rgba(255,255,255,0.03);border:1px solid var(--c-border);border-radius:8px;padding:12px 14px;font-size:12px;color:var(--c-text);">🏀 <strong>Close game</strong> — decided by ${Math.abs(diff)} point${Math.abs(diff)===1?'':'s'}</div>`:''}
+    </div>
+  </div>
+
+  <div>
+    <div style="font-size:9px;letter-spacing:3px;color:var(--c-orange);text-transform:uppercase;font-weight:700;margin-bottom:14px;">📊 Full Analytics Breakdown</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;">
+      <thead>
+        <tr style="background:rgba(123,16,32,0.25);">
+          <th style="text-align:left;padding:9px 8px;color:var(--c-orange);font-size:8px;letter-spacing:2px;border-bottom:1px solid rgba(232,130,10,0.2);">#</th>
+          <th style="padding:9px 6px;color:var(--c-orange);font-size:8px;letter-spacing:2px;border-bottom:1px solid rgba(232,130,10,0.2);">GRADE</th>
+          <th style="padding:9px 6px;color:var(--c-orange);font-size:8px;letter-spacing:2px;border-bottom:1px solid rgba(232,130,10,0.2);">PTS</th>
+          <th style="padding:9px 6px;color:var(--c-orange);font-size:8px;letter-spacing:2px;border-bottom:1px solid rgba(232,130,10,0.2);">AST</th>
+          <th style="padding:9px 6px;color:var(--c-orange);font-size:8px;letter-spacing:2px;border-bottom:1px solid rgba(232,130,10,0.2);">REB</th>
+          <th style="padding:9px 6px;color:var(--c-orange);font-size:8px;letter-spacing:2px;border-bottom:1px solid rgba(232,130,10,0.2);">STL</th>
+          <th style="padding:9px 6px;color:var(--c-orange);font-size:8px;letter-spacing:2px;border-bottom:1px solid rgba(232,130,10,0.2);">BLK</th>
+          <th style="padding:9px 6px;color:var(--c-orange);font-size:8px;letter-spacing:2px;border-bottom:1px solid rgba(232,130,10,0.2);">TS%</th>
+          <th style="padding:9px 6px;color:var(--c-orange);font-size:8px;letter-spacing:2px;border-bottom:1px solid rgba(232,130,10,0.2);">+/−</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${Object.keys(pStats).sort((a,b)=>(pStats[b].pts||0)-(pStats[a].pts||0)).map(p=>{
+          const s = pStats[p];
+          const gr = gradePlayer(p);
+          const pm_v = s.pm||0;
+          const ts_v = s.ts!=null?(s.ts*100).toFixed(1)+'%':'—';
+          return `<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+            <td style="padding:9px 8px;font-weight:900;color:var(--c-orange2);font-size:13px;">#${p}</td>
+            <td style="padding:9px 6px;text-align:center;font-weight:900;font-size:15px;color:${gradeColor(gr)};">${gr}</td>
+            <td style="padding:9px 6px;text-align:center;font-weight:700;color:var(--c-cream);">${s.pts||0}</td>
+            <td style="padding:9px 6px;text-align:center;">${s.ast||0}</td>
+            <td style="padding:9px 6px;text-align:center;">${s.reb||0}</td>
+            <td style="padding:9px 6px;text-align:center;">${s.stl||0}</td>
+            <td style="padding:9px 6px;text-align:center;">${s.blk||0}</td>
+            <td style="padding:9px 6px;text-align:center;">${ts_v}</td>
+            <td style="padding:9px 6px;text-align:center;font-weight:700;color:${pm_v>0?'var(--c-green)':pm_v<0?'var(--c-red)':'var(--c-muted)'};">${pm_v>0?'+':''}${pm_v}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>
+  <div style="margin-top:16px;font-size:9px;color:var(--c-muted);letter-spacing:2px;text-align:center;">GENERATED BY SWIVEL · GAME FILM ANALYTICS</div>`;
+
+  return html;
 }
 
 function deleteSeason(id) {
