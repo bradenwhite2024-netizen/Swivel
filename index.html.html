@@ -53,8 +53,9 @@ body{
    UPLOAD SCREEN
 ═══════════════════════════════════════════ */
 #upload-screen{
+  display:none;
   min-height:100vh;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  flex-direction:column;align-items:center;justify-content:center;
   padding:24px;
   background:
     radial-gradient(ellipse 80% 60% at 50% -10%, rgba(123,16,32,0.35) 0%, transparent 70%),
@@ -136,7 +137,7 @@ body{
 /* ═══════════════════════════════════════════
    MAIN APP — hidden until launched
 ═══════════════════════════════════════════ */
-#app{display:none;flex-direction:column;min-height:100vh;}
+#app{display:flex;flex-direction:column;min-height:100vh;}
 
 /* ── TOP NAV ── */
 #top-nav{
@@ -499,7 +500,7 @@ body{
       </div>
     </div>
 
-    <button id="launch-btn" disabled onclick="launchApp()">LAUNCH SWIVEL →</button>
+    <button id="launch-btn" onclick="launchApp()">LAUNCH SWIVEL →</button>
     <div class="upload-note">All files stay on your device · No uploads · Works offline</div>
   </div>
 </div>
@@ -509,32 +510,22 @@ body{
   <nav id="top-nav">
     <div class="nav-mark">SWIVEL</div>
     <div class="nav-sep"></div>
-    <div class="nav-info" id="nav-info">—</div>
+    <div class="nav-info" id="nav-info">No game loaded</div>
     <div class="nav-tabs">
       <button class="nav-tab active" onclick="switchTab('dashboard')">Dashboard</button>
       <button class="nav-tab"        onclick="switchTab('film')">Film</button>
       <button class="nav-tab"        onclick="switchTab('reports')">Player Cards</button>
       <button class="nav-tab"        onclick="switchTab('season')">Season</button>
     </div>
-    <button id="add-game-btn" onclick="triggerAddGame()">＋ Add Game</button>
-    <button id="new-game-btn" onclick="confirmNewGame()">↩ New Game</button>
+    <button id="add-game-btn" onclick="triggerAddGame()">＋ Load Game</button>
+    <button id="new-game-btn" onclick="confirmNewGame()">↩ Reset</button>
   </nav>
   <input type="file" id="add-game-input" accept=".csv" multiple style="display:none" onchange="handleAddGameFiles(this)"/>
 
   <!-- DASHBOARD -->
   <div id="tab-dashboard" class="tab-pane active">
-    <div class="game-banner">
-      <div>
-        <div class="game-banner-title" id="gh-title">—</div>
-        <div class="game-banner-meta"  id="gh-meta">—</div>
-      </div>
-      <div class="score-pills">
-        <div class="score-pill"><span class="score-pill-lbl">Games</span><span class="score-pill-val" id="gh-games">1</span></div>
-        <div class="score-pill"><span class="score-pill-lbl">Team PTS</span><span class="score-pill-val" id="gh-tpts">0</span></div>
-        <div class="score-pill"><span class="score-pill-lbl">Opp PTS</span><span class="score-pill-val" id="gh-opts">—</span></div>
-        <div class="score-pill"><span class="score-pill-lbl">Events</span><span class="score-pill-val" id="gh-evts">0</span></div>
-        <div class="score-pill"><span class="score-pill-lbl">Players</span><span class="score-pill-val" id="gh-plyrs">0</span></div>
-      </div>
+    <div id="swivel-header" style="margin-bottom:18px;">
+      <!-- Header rendered by renderDashboardHeader() -->
     </div>
 
     <div class="card full" style="margin-bottom:14px;">
@@ -772,9 +763,7 @@ function updateFileList() {
   `).join('');
 }
 
-function checkReady() {
-  document.getElementById('launch-btn').disabled = !loadedGames.length;
-}
+function checkReady() { /* launch always available */ }
 
 // ═══════════════════════════════════════════════════════════
 //  CSV PARSERS
@@ -936,8 +925,7 @@ function launchApp() {
   const statKeys = [...new Set(statEvents.map(e=>e.stat))];
   statKeys.forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=STAT_LABELS[k]||k; sf.appendChild(o); });
 
-  document.getElementById('upload-screen').style.display='none';
-  document.getElementById('app').style.display='flex';
+  // App is always visible — no screen toggle needed
 
   renderDashboard();
   renderEvents();
@@ -969,17 +957,21 @@ function launchApp() {
           const evts = gStatEvts.filter(e=>e.player===p);
           const cnt = k => evts.filter(e=>e.stat===k).length;
           const ptsV = cnt('twopm')*2+cnt('tpm')*3+cnt('ftm');
+          const fgm = cnt('twopm')+cnt('tpm');
           const fga = cnt('twopm')+cnt('twopa')+cnt('tpm')+cnt('tpa');
-          const fta = cnt('ftm')+cnt('fta');
+          const tpm = cnt('tpm'); const tpa = cnt('tpm')+cnt('tpa');
+          const ftm = cnt('ftm'); const fta = cnt('ftm')+cnt('fta');
           const ts = (2*(fga+0.44*fta))>0 ? ptsV/(2*(fga+0.44*fta)) : null;
           const pmData = statsMap[p];
-          return [p,{pts:ptsV,ast:cnt('ast'),to:cnt('to'),stl:cnt('stl'),blk:cnt('blk'),reb:cnt('oreb')+cnt('dreb'),ts,pm:pmData?((pmData['Team PTS On']||0)-(pmData['Opp PTS On']||0)):0}];
+          return [p,{pts:ptsV,ast:cnt('ast'),to:cnt('to'),stl:cnt('stl'),blk:cnt('blk'),reb:cnt('oreb')+cnt('dreb'),ts,pm:pmData?((pmData['Team PTS On']||0)-(pmData['Opp PTS On']||0)):0,fgm,fga,tpm,tpa,ftm,fta}];
         })),
       };
       seasonGames.push(entry);
     }
   });
   localStorage.setItem('swivel_season', JSON.stringify(seasonGames));
+  // Re-render dashboard AFTER season is saved so record is accurate
+  renderDashboard();
   renderSeason();
   toast('SWIVEL LOADED · '+statEvents.length+' EVENTS · '+players.length+' PLAYERS · '+loadedGames.length+' GAME'+(loadedGames.length>1?'S':''));
 }
@@ -988,6 +980,11 @@ function launchApp() {
 //  ADD GAME (mid-session)
 // ═══════════════════════════════════════════════════════════
 function triggerAddGame() {
+  // If no games loaded yet, also prompt for team name
+  if (!loadedGames.length) {
+    const team = prompt('Your team name:', gameInfo.team || 'My Team');
+    if (team !== null) gameInfo.team = team || 'My Team';
+  }
   const inp = document.getElementById('add-game-input');
   inp.value = '';
   inp.click();
@@ -1076,6 +1073,45 @@ function mergeAndRefresh() {
   // Re-render everything
   renderDashboard();
   renderEvents();
+  genPlayerCards();
+
+  // Auto-save any new games to season
+  loadedGames.forEach((g, idx) => {
+    const alreadySaved = seasonGames.find(sg=>sg.sourceFile===g.filename);
+    if (!alreadySaved) {
+      const gStatEvts = statEvents.filter(e=>e.gameIndex===idx);
+      const gPlayers = [...new Set(gStatEvts.map(e=>e.player))].filter(Boolean);
+      const entry = {
+        id: Date.now() + idx,
+        sourceFile: g.filename,
+        team: gameInfo.team,
+        opp: gameInfo.opp,
+        date: gameInfo.date,
+        loc: gameInfo.loc,
+        teamPts: gPlayers.reduce((s,p)=>{
+          const evts = gStatEvts.filter(e=>e.player===p);
+          return s + evts.filter(e=>e.stat==='twopm').length*2 + evts.filter(e=>e.stat==='tpm').length*3 + evts.filter(e=>e.stat==='ftm').length;
+        },0),
+        oppPts: events.filter(e=>e.type==='opp'&&e.gameIndex===idx).reduce((s,e)=>{const m=(e.eventLabel||'').match(/\+(\d+)/);return s+(m?parseInt(m[1]):0);},0),
+        playerStats: Object.fromEntries(gPlayers.map(p=>{
+          const evts = gStatEvts.filter(e=>e.player===p);
+          const cnt = k => evts.filter(e=>e.stat===k).length;
+          const ptsV = cnt('twopm')*2+cnt('tpm')*3+cnt('ftm');
+          const fgm = cnt('twopm')+cnt('tpm');
+          const fga = cnt('twopm')+cnt('twopa')+cnt('tpm')+cnt('tpa');
+          const tpm = cnt('tpm'); const tpa = cnt('tpm')+cnt('tpa');
+          const ftm = cnt('ftm'); const fta = cnt('ftm')+cnt('fta');
+          const ts = (2*(fga+0.44*fta))>0 ? ptsV/(2*(fga+0.44*fta)) : null;
+          const pmData = statsMap[p];
+          return [p,{pts:ptsV,ast:cnt('ast'),to:cnt('to'),stl:cnt('stl'),blk:cnt('blk'),reb:cnt('oreb')+cnt('dreb'),ts,pm:pmData?((pmData['Team PTS On']||0)-(pmData['Opp PTS On']||0)):0,fgm,fga,tpm,tpa,ftm,fta}];
+        })),
+      };
+      seasonGames.push(entry);
+    }
+  });
+  localStorage.setItem('swivel_season', JSON.stringify(seasonGames));
+  renderDashboard();
+  renderSeason();
 
   const gc = loadedGames.length;
   const gamesNote = gc > 1 ? ` · ${gc} GAMES` : '';
@@ -1139,20 +1175,66 @@ function teamOppPts() {
 // ═══════════════════════════════════════════════════════════
 //  DASHBOARD
 // ═══════════════════════════════════════════════════════════
+function renderDashboardHeader(teamPts, oppPts, gc) {
+  const el = document.getElementById('swivel-header');
+  if (!el) return;
+  const wins = seasonGames.filter(g=>g.teamPts>(g.oppPts||0)).length;
+  const losses = seasonGames.filter(g=>g.teamPts<=(g.oppPts||0)).length;
+  const record = wins + '–' + losses;
+  const teamName = (gameInfo.team || 'My Team').toUpperCase();
+
+  el.innerHTML = `
+    <div style="
+      background:linear-gradient(135deg,rgba(16,8,12,0.98) 0%,rgba(22,14,18,0.98) 50%,rgba(10,10,15,0.98) 100%);
+      border:1px solid rgba(232,130,10,0.18);
+      border-left:4px solid var(--c-orange);
+      border-radius:var(--r);
+      padding:22px 28px;
+      box-shadow:0 0 60px rgba(123,16,32,0.18),0 4px 24px rgba(0,0,0,0.5);
+      position:relative;overflow:hidden;
+      display:flex;align-items:center;gap:32px;flex-wrap:wrap;
+    ">
+      <div style="position:absolute;inset:0;background:radial-gradient(ellipse 50% 120% at 0% 50%,rgba(123,16,32,0.15) 0%,transparent 60%);pointer-events:none;"></div>
+      <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,var(--c-orange) 0%,rgba(232,130,10,0.15) 60%,transparent 100%);"></div>
+
+      <!-- Team name -->
+      <div style="position:relative;">
+        <div style="font-size:9px;letter-spacing:5px;color:var(--c-orange);text-transform:uppercase;font-weight:700;margin-bottom:6px;">Team</div>
+        <div style="font-size:28px;font-weight:900;color:var(--c-cream);letter-spacing:3px;line-height:1;">${teamName}</div>
+      </div>
+
+      <!-- Divider -->
+      <div style="width:1px;height:48px;background:rgba(255,255,255,0.08);position:relative;flex-shrink:0;"></div>
+
+      <!-- Record -->
+      <div style="position:relative;">
+        <div style="font-size:9px;letter-spacing:5px;color:var(--c-orange);text-transform:uppercase;font-weight:700;margin-bottom:6px;">Record</div>
+        <div style="font-size:36px;font-weight:900;line-height:1;">
+          <span style="color:var(--c-green);">${wins}</span>
+          <span style="color:rgba(255,255,255,0.2);font-size:24px;margin:0 4px;">–</span>
+          <span style="color:var(--c-red);">${losses}</span>
+        </div>
+      </div>
+
+      <!-- Divider -->
+      <div style="width:1px;height:48px;background:rgba(255,255,255,0.08);position:relative;flex-shrink:0;"></div>
+
+      <!-- Season games loaded -->
+      <div style="position:relative;">
+        <div style="font-size:9px;letter-spacing:5px;color:var(--c-orange);text-transform:uppercase;font-weight:700;margin-bottom:6px;">Games</div>
+        <div style="font-size:36px;font-weight:900;color:var(--c-cream);line-height:1;">${seasonGames.length}</div>
+      </div>
+
+    </div>
+  `;
+}
+
 function renderDashboard() {
   const teamPts = players.reduce((s,p)=>s+pts(p),0);
   const oppPts  = teamOppPts();
   const gc = loadedGames.length;
 
-  document.getElementById('gh-games').textContent  = loadedGames.length;
-  document.getElementById('gh-title').textContent = gameInfo.team + (gc > 1 ? ' — ' + gc + ' Games' : ' vs ' + gameInfo.opp);
-  document.getElementById('gh-meta').textContent  = gc > 1
-    ? gc + ' games loaded · Accumulated stats'
-    : ([gameInfo.date,gameInfo.loc].filter(Boolean).join(' · ') || 'Game Film');
-  document.getElementById('gh-tpts').textContent  = teamPts;
-  document.getElementById('gh-opts').textContent  = oppPts || '—';
-  document.getElementById('gh-evts').textContent  = statEvents.length;
-  document.getElementById('gh-plyrs').textContent = players.length;
+  renderDashboardHeader(teamPts, oppPts, gc);
 
   renderBoxScore();
   genPlayerCards();
@@ -1303,20 +1385,7 @@ function renderBstTable(cols, tblId='box-score-tbl') {
     html += '</tr>';
   });
 
-  // Season totals row
-  const sumCols = new Set(['GP','PTS','FG Made','FG Att','3PT Made','3PT Att','FT Made','FT Att',
-    'OREB','DREB','REB','AST','STL','BLK','TO','FOUL','CHG','DEFL','TF','DD','TD','Min']);
-  html += '<tr class="team-row"><td>Season Totals</td>';
-  cols.slice(1).forEach(c=>{
-    if(c.k==='name'){html+='<td></td>';return;}
-    if(sumCols.has(c.k)){
-      const t=players.reduce((s,p)=>s+(parseFloat(getDisplayStat(p,c.k))||0),0);
-      html+=`<td>${Number.isInteger(t)?t:t.toFixed(1)}</td>`;
-    } else {
-      html+='<td>—</td>';
-    }
-  });
-  html += '</tr></tbody>';
+  html += '</tbody>';
   document.getElementById(tblId).innerHTML = html;
 }
 
@@ -1670,7 +1739,7 @@ function renderSeason() {
     const win = g.teamPts > (g.oppPts||0);
     html += `<div class="season-game-row">
       <div style="flex:1;">
-        <div class="sg-title">${g.team} vs ${g.opp}</div>
+        <div class="sg-title">${g.sourceFile ? g.sourceFile.replace(/\.csv$/i,'') : g.team+' vs '+g.opp}</div>
         <div class="sg-meta">${g.date||'No date'}${g.loc?' · '+g.loc:''}</div>
       </div>
       <div class="sg-pts" style="color:${win?'var(--c-green)':'var(--c-red)'}">${g.teamPts}–${g.oppPts||'?'}</div>
@@ -1708,47 +1777,89 @@ function setTrendFilter(type, player) {
 function buildTrendCharts() {
   if (seasonGames.length < 2) return '<div style="color:var(--c-muted);font-size:11px;letter-spacing:1px;padding:10px 0;">Need at least 2 games for trends.</div>';
   const games = [...seasonGames].sort((a,b)=>a.id-b.id);
-  const labels = games.map((g,i)=>'G'+(i+1)+' '+g.opp);
+  const labels = games.map((g,i)=>g.sourceFile ? g.sourceFile.replace(/\.csv$/i,'').replace(/timestamps?/i,'').trim() : 'G'+(i+1));
 
   if (activeTrendFilter === 'team') {
+    // Compute team shooting from player stats
     const metrics = [
-      {label:'Points Scored', vals:games.map(g=>g.teamPts), color:'var(--c-orange)'},
-      {label:'Points Allowed', vals:games.map(g=>g.oppPts||0), color:'var(--c-red)'},
-      {label:'Point Differential', vals:games.map(g=>g.teamPts-(g.oppPts||0)), color:'var(--c-green)'},
+      {label:'Points Scored',      vals:games.map(g=>g.teamPts),                                                                                               fmt:v=>v,        color:'#E8820A'},
+      {label:'Points Allowed',     vals:games.map(g=>g.oppPts||0),                                                                                             fmt:v=>v,        color:'#DC2626'},
+      {label:'Point Differential', vals:games.map(g=>g.teamPts-(g.oppPts||0)),                                                                                 fmt:v=>(v>0?'+':'')+v, color:'#16A34A'},
+      {label:'FG%',                vals:games.map(g=>{ const ps=Object.values(g.playerStats||{}); const m=ps.reduce((s,p)=>s+(p.fgm||0),0),a=ps.reduce((s,p)=>s+(p.fga||0),0); return a>0?parseFloat((m/a*100).toFixed(1)):0; }), fmt:v=>v+'%', color:'#2563EB'},
+      {label:'3PT%',               vals:games.map(g=>{ const ps=Object.values(g.playerStats||{}); const m=ps.reduce((s,p)=>s+(p.tpm||0),0),a=ps.reduce((s,p)=>s+(p.tpa||0),0); return a>0?parseFloat((m/a*100).toFixed(1)):0; }), fmt:v=>v+'%', color:'#7C3AED'},
+      {label:'FT%',                vals:games.map(g=>{ const ps=Object.values(g.playerStats||{}); const m=ps.reduce((s,p)=>s+(p.ftm||0),0),a=ps.reduce((s,p)=>s+(p.fta||0),0); return a>0?parseFloat((m/a*100).toFixed(1)):0; }), fmt:v=>v+'%', color:'#0891B2'},
+      {label:'Turnovers',          vals:games.map(g=>{ const ps=Object.values(g.playerStats||{}); return ps.reduce((s,p)=>s+(p.to||0),0); }),                  fmt:v=>v,        color:'#D97706'},
     ];
-    return buildSparklineGrid(labels, metrics);
+    return buildLineGrid(labels, metrics);
   } else {
     const p = activeTrendPlayer;
+    // Only include games where player actually played
+    const playerGames = games.filter(g=>g.playerStats?.[p]?.pts !== undefined);
+    const playerLabels = playerGames.map((g,i)=>g.sourceFile ? g.sourceFile.replace(/\.csv$/i,'').replace(/timestamps?/i,'').trim() : 'G'+(i+1));
+    if (playerGames.length < 1) return '<div style="color:var(--c-muted);font-size:11px;letter-spacing:1px;padding:10px 0;">No games found for this player.</div>';
     const metrics = [
-      {label:'Points',   vals:games.map(g=>g.playerStats?.[p]?.pts||0),   color:'var(--c-orange)'},
-      {label:'Assists',  vals:games.map(g=>g.playerStats?.[p]?.ast||0),  color:'var(--c-blue)'},
-      {label:'Rebounds', vals:games.map(g=>g.playerStats?.[p]?.reb||0),  color:'var(--c-green)'},
-      {label:'+/−',      vals:games.map(g=>g.playerStats?.[p]?.pm||0),   color:'var(--c-gold)'},
-      {label:'TS%',      vals:games.map(g=>{ const v=g.playerStats?.[p]?.ts; return v!=null?parseFloat((v*100).toFixed(1)):0; }), color:'var(--c-maroon2)'},
+      {label:'Points',   vals:playerGames.map(g=>g.playerStats[p].pts||0),  fmt:v=>v,        color:'#E8820A'},
+      {label:'Assists',  vals:playerGames.map(g=>g.playerStats[p].ast||0),  fmt:v=>v,        color:'#2563EB'},
+      {label:'Rebounds', vals:playerGames.map(g=>g.playerStats[p].reb||0),  fmt:v=>v,        color:'#16A34A'},
+      {label:'+/−',      vals:playerGames.map(g=>g.playerStats[p].pm||0),   fmt:v=>(v>0?'+':'')+v, color:'#C8A400'},
+      {label:'TS%',      vals:playerGames.map(g=>{ const v=g.playerStats[p].ts; return v!=null?parseFloat((v*100).toFixed(1)):0; }), fmt:v=>v+'%', color:'#9B1828'},
     ];
-    return buildSparklineGrid(labels, metrics);
+    return buildLineGrid(playerLabels, metrics);
   }
 }
 
-function buildSparklineGrid(labels, metrics) {
-  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;">';
+function buildLineGrid(labels, metrics) {
+  const W = 280, H = 90, PAD = 12;
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">';
   metrics.forEach(m=>{
     const vals = m.vals;
-    const mx = Math.max(...vals.map(Math.abs), 1);
-    const mn = Math.min(...vals);
-    html += `<div style="background:var(--c-panel);border:1px solid var(--c-border);border-radius:10px;padding:16px;">
-      <div style="font-size:9px;letter-spacing:3px;color:var(--c-orange);text-transform:uppercase;font-weight:700;margin-bottom:12px;">${m.label}</div>
-      <div style="display:flex;align-items:flex-end;gap:4px;height:60px;margin-bottom:8px;">`;
-    vals.forEach((v,i)=>{
-      const abs = Math.abs(v);
-      const h = Math.max(4, Math.round((abs/mx)*52));
-      const col = v < 0 ? 'var(--c-red)' : m.color;
-      html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;">
-        <div style="font-size:8px;color:var(--c-muted);font-weight:700;">${v>0&&m.label==='+/−'?'+':''}${v}</div>
-        <div style="width:100%;height:${h}px;background:${col};border-radius:2px 2px 0 0;opacity:0.85;"></div>
-      </div>`;
-    });
-    html += `</div><div style="display:flex;gap:4px;">${labels.map(l=>`<div style="flex:1;font-size:7px;color:var(--c-muted);text-align:center;overflow:hidden;white-space:nowrap;">${l}</div>`).join('')}</div></div>`;
+    const n = vals.length;
+    if (n < 1) return;
+    const latest = vals[n-1];
+    const prev   = n > 1 ? vals[n-2] : null;
+    const trend  = prev !== null ? (latest > prev ? '▲' : latest < prev ? '▼' : '→') : '';
+    const trendCol = prev !== null ? (latest > prev ? '#16A34A' : latest < prev ? '#DC2626' : '#888') : '#888';
+
+    // Compute SVG path
+    const allVals = [...vals];
+    const mn = Math.min(...allVals);
+    const mx = Math.max(...allVals);
+    const range = mx - mn || 1;
+    const px = (i) => PAD + (i / Math.max(n-1,1)) * (W - PAD*2);
+    const py = (v) => PAD + (1 - (v - mn) / range) * (H - PAD*2);
+
+    let pathD = vals.map((v,i)=>(i===0?'M':'L')+px(i).toFixed(1)+' '+py(v).toFixed(1)).join(' ');
+    let areaD = 'M'+px(0).toFixed(1)+' '+H+' '+pathD+' L'+px(n-1).toFixed(1)+' '+H+' Z';
+
+    // Data point dots and labels
+    let dots = vals.map((v,i)=>`
+      <circle cx="${px(i).toFixed(1)}" cy="${py(v).toFixed(1)}" r="3" fill="${m.color}" stroke="rgba(0,0,0,0.5)" stroke-width="1"/>
+      <text x="${px(i).toFixed(1)}" y="${(py(v)-7).toFixed(1)}" text-anchor="middle" font-size="8" fill="rgba(212,200,168,0.7)" font-family="Courier New">${m.fmt(v)}</text>
+    `).join('');
+
+    // X-axis labels
+    let xLabels = labels.map((l,i)=>`
+      <text x="${px(i).toFixed(1)}" y="${H+10}" text-anchor="middle" font-size="7" fill="rgba(212,200,168,0.35)" font-family="Georgia">${l.length>8?l.slice(0,8)+'…':l}</text>
+    `).join('');
+
+    html += `<div style="background:var(--c-panel);border:1px solid var(--c-border);border-radius:10px;padding:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div style="font-size:9px;letter-spacing:3px;color:var(--c-orange);text-transform:uppercase;font-weight:700;">${m.label}</div>
+        <div style="font-size:13px;font-weight:900;color:${m.color};">${m.fmt(latest)} <span style="font-size:10px;color:${trendCol};">${trend}</span></div>
+      </div>
+      <svg viewBox="0 0 ${W} ${H+14}" width="100%" style="overflow:visible;display:block;">
+        <defs>
+          <linearGradient id="ag${m.label.replace(/[^a-z]/gi,'')}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${m.color}" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="${m.color}" stop-opacity="0.02"/>
+          </linearGradient>
+        </defs>
+        <path d="${areaD}" fill="url(#ag${m.label.replace(/[^a-z]/gi,'')})" />
+        <path d="${pathD}" fill="none" stroke="${m.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        ${dots}
+        ${xLabels}
+      </svg>
+    </div>`;
   });
   html += '</div>';
   return html;
@@ -1924,8 +2035,88 @@ function buildPostGameReport(g) {
 }
 
 function deleteSeason(id) {
+  // Find the game being removed so we can remove its CSV from loadedGames
+  const removedGame = seasonGames.find(g=>g.id===id);
   seasonGames = seasonGames.filter(g=>g.id!==id);
   localStorage.setItem('swivel_season', JSON.stringify(seasonGames));
+
+  // Remove the corresponding loaded CSV if it exists
+  if (removedGame && removedGame.sourceFile) {
+    const idx = loadedGames.findIndex(g=>g.filename===removedGame.sourceFile);
+    if (idx !== -1) {
+      loadedGames.splice(idx, 1);
+
+      // Re-parse remaining games with updated indices
+      events = [];
+      loadedGames.forEach((g, i) => {
+        const parsed = parseTsCSV(g.text, i);
+        events = events.concat(parsed);
+      });
+      statEvents = events.filter(e=>e.type==='stat' && e.player && e.stat);
+
+      // Rebuild statsMap
+      statsMap = buildStatsMapFromEvents(events, statEvents);
+
+      // Recompute GP
+      const gpByPlayer = {};
+      loadedGames.forEach((g, i) => {
+        const gameStatEvts = statEvents.filter(e=>e.gameIndex===i);
+        const playersInGame = [...new Set(gameStatEvts.map(e=>e.player))];
+        playersInGame.forEach(p => { gpByPlayer[p] = (gpByPlayer[p]||0) + 1; });
+      });
+      Object.keys(gpByPlayer).forEach(p => {
+        if (!statsMap[p]) statsMap[p] = {};
+        statsMap[p]['GP'] = gpByPlayer[p];
+      });
+
+      // Rebuild player list
+      const fromEvts = [...new Set(statEvents.map(e=>e.player))];
+      players = [...new Set(fromEvts)].filter(Boolean).sort((a,b)=>pts(b)-pts(a));
+      gameInfo.gameCount = loadedGames.length;
+
+      // Refresh film tab filters
+      const pf = document.getElementById('ev-pfilter');
+      pf.innerHTML = '<option value="">All Players</option>';
+      players.forEach(p => { const o=document.createElement('option'); o.value=p; o.textContent='#'+p; pf.appendChild(o); });
+
+      const gf = document.getElementById('ev-gfilter');
+      gf.innerHTML = '<option value="">All Games</option>';
+      loadedGames.forEach((g, i) => {
+        const o=document.createElement('option'); o.value=i; o.textContent='G'+(i+1)+': '+g.label; gf.appendChild(o);
+      });
+      document.getElementById('ev-gfilter-wrap').style.display = loadedGames.length > 1 ? '' : 'none';
+
+      const sf = document.getElementById('ev-sfilter');
+      sf.innerHTML = '<option value="">All Stats</option>';
+      const statKeys = [...new Set(statEvents.map(e=>e.stat))];
+      statKeys.forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=STAT_LABELS[k]||k; sf.appendChild(o); });
+
+      // Update nav info
+      const gc = loadedGames.length;
+      const gamesNote = gc > 1 ? ` · ${gc} GAMES` : '';
+      document.getElementById('nav-info').textContent =
+        gameInfo.team + ' vs ' + gameInfo.opp + (gameInfo.date?' · '+gameInfo.date:'') + gamesNote;
+
+      // Re-render dashboard, film, player cards
+      if (loadedGames.length > 0) {
+        renderDashboard();
+        renderEvents();
+        genPlayerCards();
+      } else {
+        // No games left — clear dashboard
+        renderDashboardHeader(0, 0, 0);
+        document.getElementById('box-score-tbl').innerHTML = '';
+        document.getElementById('box-score-tbl2').innerHTML = '';
+        ['chart-pts','chart-pm','chart-ts','chart-astto','chart-hustle','chart-stocks'].forEach(id=>{
+          const el=document.getElementById(id); if(el) el.innerHTML='';
+        });
+        document.getElementById('event-list').innerHTML = '';
+        document.getElementById('player-cards-out').innerHTML = '<div style="color:var(--c-muted);text-align:center;padding:40px;font-size:13px;letter-spacing:2px;">LOAD A GAME TO SEE PLAYER CARDS</div>';
+        document.getElementById('nav-info').textContent = gameInfo.team + ' vs ' + gameInfo.opp;
+      }
+    }
+  }
+
   renderSeason();
   toast('GAME REMOVED');
 }
@@ -1957,6 +2148,17 @@ function toast(msg) {
   t.textContent=msg; t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2600);
 }
+
+// ═══════════════════════════════════════════════════════════
+//  INIT — render empty state on page load
+// ═══════════════════════════════════════════════════════════
+(function initEmptyState() {
+  gameInfo = { team: 'My Team', opp: '', date: '', loc: '', gameCount: 0 };
+  renderDashboardHeader(0, 0, 0);
+  genPlayerCards();
+  renderSeason();
+  document.getElementById('nav-info').textContent = 'No game loaded · Click Load Game to start';
+})();
 
 let _modalCb=null;
 function showModal(title,body,onOk) {
